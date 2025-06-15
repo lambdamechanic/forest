@@ -187,6 +187,41 @@ fn open_session(
     verbose: bool,
 ) -> anyhow::Result<()> {
     ensure_git_setup(name, config, verbose)?;
+
+    // Determine repository root and worktree path
+    let output = Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .stderr(Stdio::null())
+        .output()?;
+    let repo_root = PathBuf::from(str::from_utf8(&output.stdout)?.trim());
+    let repo_name = repo_root
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("failed to determine repo name"))?
+        .to_string_lossy();
+
+    let home = std::env::var("HOME").unwrap_or_else(|_| String::from("."));
+    let worktree_root = Path::new(&home).join("worktrees").join(&*repo_name);
+    let worktree_path = worktree_root.join(name);
+
+    if !worktree_path.exists() {
+        if verbose {
+            println!("Creating worktree at {}", worktree_path.display());
+        }
+        fs::create_dir_all(&worktree_root)?;
+        let status = Command::new("git")
+            .args([
+                "worktree",
+                "add",
+                "-B",
+                name,
+                worktree_path.to_str().unwrap(),
+            ])
+            .current_dir(&repo_root)
+            .status()?;
+        if !status.success() {
+            anyhow::bail!("git worktree add failed");
+        }
+    }
     let devcontainer_path = find_devcontainer(dev_env)?;
 
     if verbose {
@@ -315,9 +350,8 @@ fn precheck(verbose: bool) -> anyhow::Result<()> {
         }
         let content = fs::read_to_string(&path)
             .map_err(|_| anyhow::anyhow!("config file {} not found", path.display()))?;
-        toml::from_str::<Config>(&content).map_err(|e| {
-            anyhow::anyhow!("failed to parse {}: {}", path.display(), e)
-        })?;
+        toml::from_str::<Config>(&content)
+            .map_err(|e| anyhow::anyhow!("failed to parse {}: {}", path.display(), e))?;
     } else {
         anyhow::bail!("could not determine configuration directory");
     }
