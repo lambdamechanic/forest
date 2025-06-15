@@ -250,8 +250,10 @@ fn open_session(
     } else {
         if verbose {
             println!(
-                "Running: podman run -d --name {} -v {}:/repo -v {}:/code -w /code {} sleep infinity",
+                "Running: podman run -d --name {} -v {}:/repo -v {}:{} -v {}:/code -w /code {} sleep infinity",
                 name,
+                repo_root.display(),
+                repo_root.display(),
                 repo_root.display(),
                 worktree_path.display(),
                 image
@@ -264,6 +266,8 @@ fn open_session(
             .arg(name)
             .arg("-v")
             .arg(format!("{}:/repo", repo_root.display()))
+            .arg("-v")
+            .arg(format!("{}:{}", repo_root.display(), repo_root.display()))
             .arg("-v")
             .arg(format!("{}:/code", worktree_path.display()))
             .arg("-w")
