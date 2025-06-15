@@ -110,6 +110,8 @@ enum Commands {
     Kill { name: String },
     /// List running sessions
     Ls,
+    /// Verify prerequisites are installed and config is valid
+    Precheck,
 }
 
 #[derive(Deserialize, Default)]
@@ -173,6 +175,7 @@ fn main() -> anyhow::Result<()> {
         } => open_session(&name, devcontainer_env.as_deref(), &config, verbose)?,
         Commands::Kill { name } => kill_session(&name, verbose)?,
         Commands::Ls => list_sessions(verbose)?,
+        Commands::Precheck => precheck(verbose)?,
     }
     Ok(())
 }
@@ -282,6 +285,46 @@ fn list_sessions(verbose: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn command_exists(cmd: &str) -> bool {
+    Command::new(cmd)
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+fn precheck(verbose: bool) -> anyhow::Result<()> {
+    for cmd in ["podman", "git", "gh"] {
+        if verbose {
+            println!("Checking for {}", cmd);
+        }
+        if !command_exists(cmd) {
+            anyhow::bail!("{} command not found", cmd);
+        }
+    }
+
+    if let Some(proj_dirs) = ProjectDirs::from("", "", "forest") {
+        let path = proj_dirs.config_dir().join("forest.toml");
+        if verbose {
+            println!("Checking config {}", path.display());
+        }
+        let content = fs::read_to_string(&path)
+            .map_err(|_| anyhow::anyhow!("config file {} not found", path.display()))?;
+        toml::from_str::<Config>(&content).map_err(|e| {
+            anyhow::anyhow!("failed to parse {}: {}", path.display(), e)
+        })?;
+    } else {
+        anyhow::bail!("could not determine configuration directory");
+    }
+
+    if verbose {
+        println!("All checks passed");
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -300,5 +343,11 @@ mod tests {
         assert!(contents.contains("ubuntu"));
 
         env::set_current_dir(orig).unwrap();
+    }
+
+    #[test]
+    fn command_exists_detects_commands() {
+        assert!(command_exists("true"));
+        assert!(!command_exists("definitely_not_a_command"));
     }
 }
