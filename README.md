@@ -13,8 +13,24 @@ we map the repo into the devcontainer, but start a worktree at ~/worktrees/$repo
 - git
 - podman
 
+The repository must include a `devcontainer.json` file. The tool looks for:
+
+* `.devcontainer.json`
+* `.devcontainer/devcontainer.json`
+* `.devcontainer/<env>/devcontainer.json` when using `--devcontainer-env <env>`
+
+The selected `devcontainer.json` must specify an `image` field which is used
+to launch the container.
+
+If no configuration is found, `forest` will scaffold `.devcontainer/devcontainer.json`
+using the latest Ubuntu image.
+
 ## Features
-- forest open $name # open the session if it exists: otherwise, start a session named $name as well as a github branch & a local branch. assumes "origin" is the remote. we derive the git repo to use from the folder we're currently in. if there is a git repo but no github repo, create it as the name of the folder on the organisation listed as "githuborg" in the config file.
+- forest open $name [--devcontainer-env ENV] # open the session using the
+  `devcontainer.json` from `.devcontainer/ENV` (or the default location if not
+  provided). The session is created if it doesn't exist. We derive the git repo
+  from the current folder. If there is a git repo but no GitHub repo, create it
+  under `githuborg` from the config.
 - forest kill $name # destroy the session.
 - forest ls # list all sessions
 
