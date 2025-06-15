@@ -250,12 +250,27 @@ fn open_session(
     } else {
         if verbose {
             println!(
-                "Running: podman run -d --name {} {} sleep infinity",
-                name, image
+                "Running: podman run -d --name {} -v {}:/repo -v {}:/code -w /code {} sleep infinity",
+                name,
+                repo_root.display(),
+                worktree_path.display(),
+                image
             );
         }
         let status = Command::new("podman")
-            .args(["run", "-d", "--name", name, image, "sleep", "infinity"])
+            .arg("run")
+            .arg("-d")
+            .arg("--name")
+            .arg(name)
+            .arg("-v")
+            .arg(format!("{}:/repo", repo_root.display()))
+            .arg("-v")
+            .arg(format!("{}:/code", worktree_path.display()))
+            .arg("-w")
+            .arg("/code")
+            .arg(image)
+            .arg("sleep")
+            .arg("infinity")
             .status()
             .map_err(|e| {
                 if e.kind() == std::io::ErrorKind::NotFound {
