@@ -8,10 +8,16 @@ use directories::ProjectDirs;
 use serde::Deserialize;
 use serde_json::Value;
 
-fn ensure_git_setup(branch: &str, config: &Config) -> anyhow::Result<()> {
+use std::process::Stdio;
+
+fn ensure_git_setup(branch: &str, config: &Config, verbose: bool) -> anyhow::Result<()> {
     // Are we inside a git repository?
+    if verbose {
+        println!("Checking git repository root");
+    }
     let output = Command::new("git")
         .args(["rev-parse", "--show-toplevel"])
+        .stderr(Stdio::null())
         .output();
     let repo_root = match output {
         Ok(o) if o.status.success() => {
@@ -25,11 +31,16 @@ fn ensure_git_setup(branch: &str, config: &Config) -> anyhow::Result<()> {
     let branch_exists = Command::new("git")
         .args(["show-ref", "--verify", &format!("refs/heads/{}", branch)])
         .current_dir(&repo_root)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status()
         .map(|s| s.success())
         .unwrap_or(false);
 
     if !branch_exists {
+        if verbose {
+            println!("Creating git branch {}", branch);
+        }
         let status = Command::new("git")
             .args(["branch", branch])
             .current_dir(&repo_root)
@@ -43,11 +54,16 @@ fn ensure_git_setup(branch: &str, config: &Config) -> anyhow::Result<()> {
     let remote_exists = Command::new("git")
         .args(["remote", "get-url", "origin"])
         .current_dir(&repo_root)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status()
         .map(|s| s.success())
         .unwrap_or(false);
 
     if !remote_exists {
+        if verbose {
+            println!("Creating origin remote");
+        }
         if let Some(org) = &config.githuborg {
             let repo_name = repo_root.file_name().unwrap_or_default().to_string_lossy();
             let repo_spec = format!("{}/{}", org, repo_name);
@@ -74,6 +90,9 @@ fn ensure_git_setup(branch: &str, config: &Config) -> anyhow::Result<()> {
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
+    /// Print debugging information
+    #[arg(short, long)]
+    verbose: bool,
     #[command(subcommand)]
     command: Commands,
 }
@@ -145,20 +164,31 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let config = load_config();
 
+    let verbose = cli.verbose;
+
     match cli.command {
         Commands::Open {
             name,
             devcontainer_env,
-        } => open_session(&name, devcontainer_env.as_deref(), &config)?,
-        Commands::Kill { name } => kill_session(&name)?,
-        Commands::Ls => list_sessions()?,
+        } => open_session(&name, devcontainer_env.as_deref(), &config, verbose)?,
+        Commands::Kill { name } => kill_session(&name, verbose)?,
+        Commands::Ls => list_sessions(verbose)?,
     }
     Ok(())
 }
 
-fn open_session(name: &str, dev_env: Option<&str>, config: &Config) -> anyhow::Result<()> {
-    ensure_git_setup(name, config)?;
+fn open_session(
+    name: &str,
+    dev_env: Option<&str>,
+    config: &Config,
+    verbose: bool,
+) -> anyhow::Result<()> {
+    ensure_git_setup(name, config, verbose)?;
     let devcontainer_path = find_devcontainer(dev_env)?;
+
+    if verbose {
+        println!("Using devcontainer at {}", devcontainer_path.display());
+    }
 
     let contents = fs::read_to_string(&devcontainer_path)?;
     let value: Value = serde_json::from_str(&contents)?;
@@ -168,6 +198,9 @@ fn open_session(name: &str, dev_env: Option<&str>, config: &Config) -> anyhow::R
         .ok_or_else(|| anyhow::anyhow!("image field missing in devcontainer"))?;
 
     // Check if container exists
+    if verbose {
+        println!("Checking if container {} exists", name);
+    }
     let exists = Command::new("podman")
         .args(["container", "exists", name])
         .status()
@@ -179,9 +212,19 @@ fn open_session(name: &str, dev_env: Option<&str>, config: &Config) -> anyhow::R
         return Ok(());
     }
 
+    if verbose {
+        println!("Running: podman run -d --name {} {}", name, image);
+    }
     let status = Command::new("podman")
         .args(["run", "-d", "--name", name, image])
-        .status()?;
+        .status()
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                anyhow::anyhow!("podman command not found. Please install podman")
+            } else {
+                e.into()
+            }
+        })?;
     if !status.success() {
         anyhow::bail!("podman run failed");
     }
@@ -189,8 +232,20 @@ fn open_session(name: &str, dev_env: Option<&str>, config: &Config) -> anyhow::R
     Ok(())
 }
 
-fn kill_session(name: &str) -> anyhow::Result<()> {
-    let status = Command::new("podman").args(["rm", "-f", name]).status()?;
+fn kill_session(name: &str, verbose: bool) -> anyhow::Result<()> {
+    if verbose {
+        println!("Running: podman rm -f {}", name);
+    }
+    let status = Command::new("podman")
+        .args(["rm", "-f", name])
+        .status()
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                anyhow::anyhow!("podman command not found. Please install podman")
+            } else {
+                e.into()
+            }
+        })?;
     if !status.success() {
         anyhow::bail!("podman rm failed");
     }
@@ -198,8 +253,17 @@ fn kill_session(name: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn list_sessions() -> anyhow::Result<()> {
-    Command::new("podman").arg("ps").status()?;
+fn list_sessions(verbose: bool) -> anyhow::Result<()> {
+    if verbose {
+        println!("Running: podman ps");
+    }
+    Command::new("podman").arg("ps").status().map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            anyhow::anyhow!("podman command not found. Please install podman")
+        } else {
+            e.into()
+        }
+    })?;
     Ok(())
 }
 
