@@ -53,22 +53,31 @@ exit 1
 #[test]
 fn new_session_branch_inside_container() {
     let repo_dir = tempdir().unwrap();
-    Command::new("git")
-        .args(["init", "-b", "main"])
-        .current_dir(&repo_dir)
-        .status()
-        .unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "-b", "main"])
+            .current_dir(&repo_dir)
+            .status()
+            .unwrap()
+            .success()
+    );
     fs::write(repo_dir.path().join("file"), "hello").unwrap();
-    Command::new("git")
-        .args(["add", "."])
-        .current_dir(&repo_dir)
-        .status()
-        .unwrap();
-    Command::new("git")
-        .args(["commit", "-m", "init"])
-        .current_dir(&repo_dir)
-        .status()
-        .unwrap();
+    assert!(
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(&repo_dir)
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert!(
+        Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(&repo_dir)
+            .status()
+            .unwrap()
+            .success()
+    );
 
     let home_dir = repo_dir.path().join("home");
     fs::create_dir(&home_dir).unwrap();
@@ -83,7 +92,14 @@ fn new_session_branch_inside_container() {
     let podman_dir = tempdir().unwrap();
     let podman_path = podman_dir.path().join("podman");
     fs::write(&podman_path, STUB_SCRIPT).unwrap();
-    Command::new("chmod").arg("+x").arg(&podman_path).status().unwrap();
+    assert!(
+        Command::new("chmod")
+            .arg("+x")
+            .arg(&podman_path)
+            .status()
+            .unwrap()
+            .success()
+    );
 
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_forest"));
     cmd.current_dir(&repo_dir);
@@ -113,36 +129,49 @@ fn new_session_branch_inside_container() {
         .current_dir(&repo_dir)
         .output()
         .unwrap();
+    assert!(branch.status.success());
     assert_eq!(String::from_utf8_lossy(&branch.stdout).trim(), "main");
 }
 
 #[test]
 fn mounts_repo_and_worktree() {
     let repo_dir = tempdir().unwrap();
-    Command::new("git")
-        .args(["init", "-b", "main"])
-        .current_dir(&repo_dir)
-        .status()
-        .unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "-b", "main"])
+            .current_dir(&repo_dir)
+            .status()
+            .unwrap()
+            .success()
+    );
     fs::write(repo_dir.path().join("file"), "hello").unwrap();
-    Command::new("git")
-        .args(["add", "."])
-        .current_dir(&repo_dir)
-        .status()
-        .unwrap();
-    Command::new("git")
-        .args(["commit", "-m", "init"])
-        .current_dir(&repo_dir)
-        .status()
-        .unwrap();
+    assert!(
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(&repo_dir)
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert!(
+        Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(&repo_dir)
+            .status()
+            .unwrap()
+            .success()
+    );
 
     // create unrelated worktree which should not be mounted
     let other_wt = repo_dir.path().join("otherwt");
-    Command::new("git")
-        .args(["worktree", "add", other_wt.to_str().unwrap(), "other"])
-        .current_dir(&repo_dir)
-        .status()
-        .unwrap();
+    assert!(
+        Command::new("git")
+            .args(["worktree", "add", "-b", "other", other_wt.to_str().unwrap()])
+            .current_dir(&repo_dir)
+            .status()
+            .unwrap()
+            .success()
+    );
 
     let home_dir = repo_dir.path().join("home");
     fs::create_dir(&home_dir).unwrap();
@@ -157,7 +186,14 @@ fn mounts_repo_and_worktree() {
     let podman_dir = tempdir().unwrap();
     let podman_path = podman_dir.path().join("podman");
     fs::write(&podman_path, STUB_SCRIPT).unwrap();
-    Command::new("chmod").arg("+x").arg(&podman_path).status().unwrap();
+    assert!(
+        Command::new("chmod")
+            .arg("+x")
+            .arg(&podman_path)
+            .status()
+            .unwrap()
+            .success()
+    );
 
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_forest"));
     cmd.current_dir(&repo_dir);
