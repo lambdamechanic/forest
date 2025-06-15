@@ -214,10 +214,13 @@ fn open_session(
         println!("Session {} already exists", name);
     } else {
         if verbose {
-            println!("Running: podman run -d --name {} {}", name, image);
+            println!(
+                "Running: podman run -d --name {} {} sleep infinity",
+                name, image
+            );
         }
         let status = Command::new("podman")
-            .args(["run", "-d", "--name", name, image])
+            .args(["run", "-d", "--name", name, image, "sleep", "infinity"])
             .status()
             .map_err(|e| {
                 if e.kind() == std::io::ErrorKind::NotFound {
