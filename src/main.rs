@@ -209,14 +209,30 @@ fn open_session(
 
     if exists {
         println!("Session {} already exists", name);
-        return Ok(());
+    } else {
+        if verbose {
+            println!("Running: podman run -d --name {} {}", name, image);
+        }
+        let status = Command::new("podman")
+            .args(["run", "-d", "--name", name, image])
+            .status()
+            .map_err(|e| {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    anyhow::anyhow!("podman command not found. Please install podman")
+                } else {
+                    e.into()
+                }
+            })?;
+        if !status.success() {
+            anyhow::bail!("podman run failed");
+        }
+        println!("Started session {}", name);
     }
-
     if verbose {
-        println!("Running: podman run -d --name {} {}", name, image);
+        println!("Running: podman exec -it {} bash", name);
     }
     let status = Command::new("podman")
-        .args(["run", "-d", "--name", name, image])
+        .args(["exec", "-it", name, "bash"])
         .status()
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
@@ -226,9 +242,8 @@ fn open_session(
             }
         })?;
     if !status.success() {
-        anyhow::bail!("podman run failed");
+        anyhow::bail!("podman exec failed");
     }
-    println!("Started session {}", name);
     Ok(())
 }
 

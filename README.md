@@ -28,11 +28,13 @@ using the latest Ubuntu image.
 ## Features
 - forest open $name [--devcontainer-env ENV] # open the session using the
   `devcontainer.json` from `.devcontainer/ENV` (or the default location if not
-  provided). The session is created if it doesn't exist. We derive the git repo
-  from the current folder. If there is a git repo but no GitHub repo, create it
-  under `githuborg` from the config. When opening a session we also ensure the
-  `origin` remote exists (creating it with `gh repo create` when missing) and
-  create a local branch matching the session name if it doesn't already exist.
+  provided). The session is created if it doesn't exist. Once the container is
+  running (or if it already exists) a shell is opened inside the container. We
+  derive the git repo from the current folder. If there is a git repo but no
+  GitHub repo, create it under `githuborg` from the config. When opening a
+  session we also ensure the `origin` remote exists (creating it with `gh repo
+  create` when missing) and create a local branch matching the session name if
+  it doesn't already exist.
 - forest kill $name # destroy the session.
 - forest ls # list all sessions
 
