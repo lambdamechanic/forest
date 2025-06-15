@@ -1,0 +1,101 @@
+use std::fs;
+use std::io::Write;
+use std::process::{Command, Stdio};
+use tempfile::tempdir;
+
+const STUB_SCRIPT: &str = r#"#!/bin/sh
+cmd=$1
+shift
+case "$cmd" in
+  container)
+    if [ "$1" = "exists" ]; then
+      name=$2
+      if [ -f "$PODMAN_STATE/$name" ]; then
+        exit 0
+      else
+        exit 1
+      fi
+    fi
+    ;;
+  run)
+    while [ "$1" != "--name" ]; do shift; done
+    name=$2
+    touch "$PODMAN_STATE/$name"
+    exit 0
+    ;;
+  exec)
+    name=$2
+    input=$(cat)
+    cd "$WORKTREE_PATH"
+    sh -c "$input"
+    exit 0
+    ;;
+esac
+exit 1
+"#;
+
+#[test]
+fn new_session_branch_inside_container() {
+    let repo_dir = tempdir().unwrap();
+    Command::new("git")
+        .args(["init", "-b", "main"])
+        .current_dir(&repo_dir)
+        .status()
+        .unwrap();
+    fs::write(repo_dir.path().join("file"), "hello").unwrap();
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(&repo_dir)
+        .status()
+        .unwrap();
+    Command::new("git")
+        .args(["commit", "-m", "init"])
+        .current_dir(&repo_dir)
+        .status()
+        .unwrap();
+
+    let home_dir = repo_dir.path().join("home");
+    fs::create_dir(&home_dir).unwrap();
+    let repo_name = repo_dir
+        .path()
+        .file_name()
+        .unwrap()
+        .to_str()
+        .unwrap();
+    let worktree_path = home_dir.join("worktrees").join(repo_name).join("new-branch");
+
+    let podman_dir = tempdir().unwrap();
+    let podman_path = podman_dir.path().join("podman");
+    fs::write(&podman_path, STUB_SCRIPT).unwrap();
+    Command::new("chmod").arg("+x").arg(&podman_path).status().unwrap();
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_forest"));
+    cmd.current_dir(&repo_dir);
+    cmd.env(
+        "PATH",
+        format!("{}:{}", podman_dir.path().display(), std::env::var("PATH").unwrap()),
+    );
+    cmd.env("HOME", &home_dir);
+    cmd.env("WORKTREE_PATH", &worktree_path);
+    cmd.env("PODMAN_STATE", podman_dir.path());
+    cmd.arg("open").arg("new-branch");
+    cmd.stdin(Stdio::piped());
+    cmd.stdout(Stdio::piped());
+
+    let mut child = cmd.spawn().unwrap();
+    {
+        let stdin = child.stdin.as_mut().unwrap();
+        stdin.write_all(b"git branch --show-current\n").unwrap();
+    }
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let out = String::from_utf8_lossy(&output.stdout);
+    assert!(out.contains("new-branch"));
+
+    let branch = Command::new("git")
+        .args(["branch", "--show-current"])
+        .current_dir(&repo_dir)
+        .output()
+        .unwrap();
+    assert_eq!(String::from_utf8_lossy(&branch.stdout).trim(), "main");
+}
