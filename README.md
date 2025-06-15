@@ -35,6 +35,7 @@ using the latest Ubuntu image.
   create a local branch matching the session name if it doesn't already exist.
 - forest kill $name # destroy the session.
 - forest ls # list all sessions
+- forest precheck # verify required tools and config
 
 ## configuration
 
