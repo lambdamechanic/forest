@@ -18,8 +18,24 @@ case "$cmd" in
     fi
     ;;
   run)
-    while [ "$1" != "--name" ]; do shift; done
-    name=$2
+    name=""
+    volumes=""
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --name)
+          name=$2
+          shift 2
+          ;;
+        -v)
+          volumes="$volumes $2"
+          shift 2
+          ;;
+        *)
+          shift
+          ;;
+      esac
+    done
+    echo "$volumes" > "$PODMAN_STATE/${name}.volumes"
     touch "$PODMAN_STATE/$name"
     exit 0
     ;;
@@ -98,4 +114,76 @@ fn new_session_branch_inside_container() {
         .output()
         .unwrap();
     assert_eq!(String::from_utf8_lossy(&branch.stdout).trim(), "main");
+}
+
+#[test]
+fn mounts_repo_and_worktree() {
+    let repo_dir = tempdir().unwrap();
+    Command::new("git")
+        .args(["init", "-b", "main"])
+        .current_dir(&repo_dir)
+        .status()
+        .unwrap();
+    fs::write(repo_dir.path().join("file"), "hello").unwrap();
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(&repo_dir)
+        .status()
+        .unwrap();
+    Command::new("git")
+        .args(["commit", "-m", "init"])
+        .current_dir(&repo_dir)
+        .status()
+        .unwrap();
+
+    // create unrelated worktree which should not be mounted
+    let other_wt = repo_dir.path().join("otherwt");
+    Command::new("git")
+        .args(["worktree", "add", other_wt.to_str().unwrap(), "other"])
+        .current_dir(&repo_dir)
+        .status()
+        .unwrap();
+
+    let home_dir = repo_dir.path().join("home");
+    fs::create_dir(&home_dir).unwrap();
+    let repo_name = repo_dir
+        .path()
+        .file_name()
+        .unwrap()
+        .to_str()
+        .unwrap();
+    let worktree_path = home_dir.join("worktrees").join(repo_name).join("new-branch");
+
+    let podman_dir = tempdir().unwrap();
+    let podman_path = podman_dir.path().join("podman");
+    fs::write(&podman_path, STUB_SCRIPT).unwrap();
+    Command::new("chmod").arg("+x").arg(&podman_path).status().unwrap();
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_forest"));
+    cmd.current_dir(&repo_dir);
+    cmd.env(
+        "PATH",
+        format!("{}:{}", podman_dir.path().display(), std::env::var("PATH").unwrap()),
+    );
+    cmd.env("HOME", &home_dir);
+    cmd.env("WORKTREE_PATH", &worktree_path);
+    cmd.env("PODMAN_STATE", podman_dir.path());
+    cmd.arg("open").arg("new-branch");
+    cmd.stdin(Stdio::piped());
+    cmd.stdout(Stdio::piped());
+
+    let mut child = cmd.spawn().unwrap();
+    {
+        let stdin = child.stdin.as_mut().unwrap();
+        stdin.write_all(b"git branch --show-current\n").unwrap();
+    }
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let out = String::from_utf8_lossy(&output.stdout);
+    assert!(out.contains("new-branch"));
+
+    let volumes = fs::read_to_string(podman_dir.path().join("new-branch.volumes")).unwrap();
+    assert!(volumes.contains(&format!("{}:/repo", repo_dir.path().display())));
+    assert!(volumes.contains(&format!("{}:/code", worktree_path.display())));
+    assert!(!volumes.contains(other_wt.to_str().unwrap()));
 }
