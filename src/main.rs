@@ -1,11 +1,75 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::str;
 
 use clap::{Parser, Subcommand};
 use directories::ProjectDirs;
 use serde::Deserialize;
 use serde_json::Value;
+
+fn ensure_git_setup(branch: &str, config: &Config) -> anyhow::Result<()> {
+    // Are we inside a git repository?
+    let output = Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .output();
+    let repo_root = match output {
+        Ok(o) if o.status.success() => {
+            let path = str::from_utf8(&o.stdout)?.trim();
+            PathBuf::from(path)
+        }
+        _ => return Ok(()),
+    };
+
+    // Check remote 'origin'
+    let remote_exists = Command::new("git")
+        .args(["remote", "get-url", "origin"])
+        .current_dir(&repo_root)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    if !remote_exists {
+        if let Some(org) = &config.githuborg {
+            let repo_name = repo_root.file_name().unwrap_or_default().to_string_lossy();
+            let repo_spec = format!("{}/{}", org, repo_name);
+            let status = Command::new("gh")
+                .args([
+                    "repo",
+                    "create",
+                    &repo_spec,
+                    "--source",
+                    repo_root.to_str().unwrap(),
+                    "--remote",
+                    "origin",
+                    "--push",
+                ])
+                .status()?;
+            if !status.success() {
+                anyhow::bail!("gh repo create failed");
+            }
+        }
+    }
+
+    // Check if branch exists
+    let branch_exists = Command::new("git")
+        .args(["show-ref", "--verify", &format!("refs/heads/{}", branch)])
+        .current_dir(&repo_root)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    if !branch_exists {
+        let status = Command::new("git")
+            .args(["branch", branch])
+            .current_dir(&repo_root)
+            .status()?;
+        if !status.success() {
+            anyhow::bail!("git branch failed");
+        }
+    }
+    Ok(())
+}
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -49,7 +113,9 @@ fn load_config() -> Config {
 
 fn find_devcontainer(dev_env: Option<&str>) -> anyhow::Result<PathBuf> {
     if let Some(env) = dev_env {
-        let candidate = Path::new(".devcontainer").join(env).join("devcontainer.json");
+        let candidate = Path::new(".devcontainer")
+            .join(env)
+            .join("devcontainer.json");
         if candidate.exists() {
             return Ok(candidate);
         }
@@ -68,7 +134,10 @@ fn find_devcontainer(dev_env: Option<&str>) -> anyhow::Result<PathBuf> {
 
     // Scaffold default devcontainer.json
     fs::create_dir_all(".devcontainer")?;
-    fs::write(&default, "{\n  \"image\": \"docker.io/library/ubuntu:latest\"\n}\n")?;
+    fs::write(
+        &default,
+        "{\n  \"image\": \"docker.io/library/ubuntu:latest\"\n}\n",
+    )?;
     Ok(default)
 }
 
@@ -77,16 +146,18 @@ fn main() -> anyhow::Result<()> {
     let config = load_config();
 
     match cli.command {
-        Commands::Open { name, devcontainer_env } => {
-            open_session(&name, devcontainer_env.as_deref(), &config)?
-        }
+        Commands::Open {
+            name,
+            devcontainer_env,
+        } => open_session(&name, devcontainer_env.as_deref(), &config)?,
         Commands::Kill { name } => kill_session(&name)?,
         Commands::Ls => list_sessions()?,
     }
     Ok(())
 }
 
-fn open_session(name: &str, dev_env: Option<&str>, _config: &Config) -> anyhow::Result<()> {
+fn open_session(name: &str, dev_env: Option<&str>, config: &Config) -> anyhow::Result<()> {
+    ensure_git_setup(name, config)?;
     let devcontainer_path = find_devcontainer(dev_env)?;
 
     let contents = fs::read_to_string(&devcontainer_path)?;
@@ -135,8 +206,8 @@ fn list_sessions() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
     use std::env;
+    use tempfile::tempdir;
 
     #[test]
     fn scaffold_created_when_missing() {
