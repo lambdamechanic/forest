@@ -21,6 +21,24 @@ fn ensure_git_setup(branch: &str, config: &Config) -> anyhow::Result<()> {
         _ => return Ok(()),
     };
 
+    // Check if branch exists
+    let branch_exists = Command::new("git")
+        .args(["show-ref", "--verify", &format!("refs/heads/{}", branch)])
+        .current_dir(&repo_root)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    if !branch_exists {
+        let status = Command::new("git")
+            .args(["branch", branch])
+            .current_dir(&repo_root)
+            .status()?;
+        if !status.success() {
+            anyhow::bail!("git branch failed");
+        }
+    }
+
     // Check remote 'origin'
     let remote_exists = Command::new("git")
         .args(["remote", "get-url", "origin"])
@@ -48,24 +66,6 @@ fn ensure_git_setup(branch: &str, config: &Config) -> anyhow::Result<()> {
             if !status.success() {
                 anyhow::bail!("gh repo create failed");
             }
-        }
-    }
-
-    // Check if branch exists
-    let branch_exists = Command::new("git")
-        .args(["show-ref", "--verify", &format!("refs/heads/{}", branch)])
-        .current_dir(&repo_root)
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
-
-    if !branch_exists {
-        let status = Command::new("git")
-            .args(["branch", branch])
-            .current_dir(&repo_root)
-            .status()?;
-        if !status.success() {
-            anyhow::bail!("git branch failed");
         }
     }
     Ok(())
