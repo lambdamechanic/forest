@@ -91,6 +91,8 @@ enum Commands {
     Kill { name: String },
     /// List running sessions
     Ls,
+    /// Verify required tools and config
+    Precheck,
 }
 
 #[derive(Deserialize, Default)]
@@ -152,6 +154,7 @@ fn main() -> anyhow::Result<()> {
         } => open_session(&name, devcontainer_env.as_deref(), &config)?,
         Commands::Kill { name } => kill_session(&name)?,
         Commands::Ls => list_sessions()?,
+        Commands::Precheck => precheck()?,
     }
     Ok(())
 }
@@ -200,6 +203,36 @@ fn kill_session(name: &str) -> anyhow::Result<()> {
 
 fn list_sessions() -> anyhow::Result<()> {
     Command::new("podman").arg("ps").status()?;
+    Ok(())
+}
+
+fn check_command(cmd: &str) -> anyhow::Result<()> {
+    let status = Command::new(cmd).arg("--version").status();
+    match status {
+        Ok(s) if s.success() => Ok(()),
+        _ => anyhow::bail!("{} not found", cmd),
+    }
+}
+
+fn validate_config() -> anyhow::Result<()> {
+    if let Some(proj_dirs) = ProjectDirs::from("", "", "forest") {
+        let path = proj_dirs.config_dir().join("forest.toml");
+        let contents = fs::read_to_string(&path)
+            .map_err(|_| anyhow::anyhow!(format!("config not found at {}", path.display())))?;
+        toml::from_str::<Config>(&contents)
+            .map(|_| ())
+            .map_err(|e| anyhow::anyhow!("invalid config: {}", e))
+    } else {
+        anyhow::bail!("unable to determine config directory")
+    }
+}
+
+fn precheck() -> anyhow::Result<()> {
+    check_command("podman")?;
+    check_command("git")?;
+    check_command("gh")?;
+    validate_config()?;
+    println!("All checks passed");
     Ok(())
 }
 
