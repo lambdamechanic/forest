@@ -1,6 +1,9 @@
 {
     "name": "Rust Development Environment",
     "build": { "dockerfile": "Dockerfile" },
+    "remoteEnv": {
+        "OPENROUTER_API_KEY": "${localEnv:OPENROUTER_API_KEY}"
+    },
     "customizations": {
         "vscode": {
             "extensions": [
