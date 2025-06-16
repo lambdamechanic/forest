@@ -298,7 +298,10 @@ fn open_session(
         .arg(format!(
             "type=bind,source={},target=/code",
             worktree_path.display()
-        ));
+        ))
+        // this is a bit subtle: we'll often be using the same devcontainer that vscode uses for consistency, but we don't want
+        // all the services that might attach (rust-analyzer etc).
+        .arg("--skip-post-attach");
     let status = run_command_verbose(&mut cmd, verbose).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             anyhow::anyhow!("devcontainer command not found. Please install @devcontainers/cli")
@@ -306,6 +309,7 @@ fn open_session(
             e.into()
         }
     })?;
+  
     if !status.success() {
         anyhow::bail!("devcontainer up failed");
     }
