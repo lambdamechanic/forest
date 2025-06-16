@@ -73,9 +73,12 @@ case "$cmd" in
           ;;
       esac
     done
-    input=$(cat)
+    cmd="$*"
+    if [ -z "$cmd" ]; then
+      cmd=$(cat)
+    fi
     cd "$workspace"
-    sh -c "$input"
+    sh -c "$cmd"
     exit 0
     ;;
   down)

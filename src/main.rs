@@ -10,7 +10,10 @@ use serde_json::Value;
 
 use std::process::Stdio;
 
-fn run_command_verbose(cmd: &mut Command, verbose: bool) -> std::io::Result<std::process::ExitStatus> {
+fn run_command_verbose(
+    cmd: &mut Command,
+    verbose: bool,
+) -> std::io::Result<std::process::ExitStatus> {
     if verbose {
         println!("Running: {:?}", cmd);
     }
@@ -247,22 +250,9 @@ fn open_session(
 
     if !worktree_path.exists() {
         if verbose {
-            println!("Creating worktree at {}", worktree_path.display());
+            println!("Creating worktree directory {}", worktree_path.display());
         }
-        fs::create_dir_all(&worktree_root)?;
-        let mut cmd = Command::new("git");
-        cmd.args([
-            "worktree",
-            "add",
-            "-B",
-            name,
-            worktree_path.to_str().unwrap(),
-        ])
-        .current_dir(&repo_root);
-        let status = run_command_verbose(&mut cmd, verbose)?;
-        if !status.success() {
-            anyhow::bail!("git worktree add failed");
-        }
+        fs::create_dir_all(&worktree_path)?;
     }
     let devcontainer_path = find_devcontainer(dev_env)?;
 
@@ -283,9 +273,7 @@ fn open_session(
             .arg(&worktree_path);
         let status = run_command_verbose(&mut cmd, verbose).map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
-                anyhow::anyhow!(
-                    "devcontainer command not found. Please install @devcontainers/cli"
-                )
+                anyhow::anyhow!("devcontainer command not found. Please install @devcontainers/cli")
             } else {
                 e.into()
             }
@@ -303,9 +291,13 @@ fn open_session(
         .arg(format!("name={}", podman_name))
         .arg("--mount")
         .arg(format!(
-            "type=bind,source={},target={}",
-            repo_root.display(),
+            "type=bind,source={},target=/repo",
             repo_root.display()
+        ))
+        .arg("--mount")
+        .arg(format!(
+            "type=bind,source={},target=/code",
+            worktree_path.display()
         ))
         // this is a bit subtle: we'll often be using the same devcontainer that vscode uses for consistency, but we don't want
         // all the services that might attach (rust-analyzer etc).
@@ -322,13 +314,45 @@ fn open_session(
         anyhow::bail!("devcontainer up failed");
     }
     println!("Started session {}", name);
+
+    let git_file = worktree_path.join(".git");
+    let mut need_worktree = true;
+    if let Ok(content) = fs::read_to_string(&git_file) {
+        if content.contains("/repo/.git/worktrees/") {
+            need_worktree = false;
+        }
+    }
+    if need_worktree {
+        let mut cmd = Command::new("devcontainer");
+        cmd.arg("exec")
+            .arg("--workspace-folder")
+            .arg(&worktree_path)
+            .arg("--id-label")
+            .arg(format!("name={}", podman_name))
+            .arg("bash")
+            .arg("-lc")
+            .arg(format!("git -C /repo worktree add -B {} /code", name));
+        let status = run_command_verbose(&mut cmd, verbose).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                anyhow::anyhow!("devcontainer command not found. Please install @devcontainers/cli")
+            } else {
+                e.into()
+            }
+        })?;
+        if !status.success() {
+            anyhow::bail!("git worktree add failed");
+        }
+    }
+
     let mut cmd = Command::new("devcontainer");
     cmd.arg("exec")
         .arg("--workspace-folder")
         .arg(&worktree_path)
         .arg("--id-label")
         .arg(format!("name={}", podman_name))
-        .arg("bash");
+        .arg("bash")
+        .arg("-lc")
+        .arg("cd /code && exec bash");
     let status = run_command_verbose(&mut cmd, verbose).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             anyhow::anyhow!("devcontainer command not found. Please install @devcontainers/cli")

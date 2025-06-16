@@ -2,9 +2,11 @@
 FROM mcr.microsoft.com/devcontainers/rust:latest
 
 USER root
-# Install extra dependencies required by Goose
+# Install extra dependencies required by Goose and create
+# directories for bind mounts
 RUN apt update && apt install -y \
-    libxcb1 libxcb1-dev libdbus-1-3 nvi
+    libxcb1 libxcb1-dev libdbus-1-3 nvi && \
+    mkdir -p /repo /code
 
 USER vscode
 # Install Goose preconfigured to use OpenRouter's o4-mini model
