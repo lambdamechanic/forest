@@ -51,14 +51,15 @@ OpenRouter you need to pass an API key. Set `OPENROUTER_API_KEY` in your local
 environment before launching a session and the value will be forwarded into the
 container via `remoteEnv` in `.devcontainer/devcontainer.json`.
 
-The container includes a static Goose configuration located at
-`/home/vscode/.config/goose/config.yaml` which sets the provider to
-`openrouter` and defaults to the `o4-mini` model. You can inspect the source
-file at `.devcontainer/goose-config.yaml`.
+Goose reads its configuration from `~/.config/goose/config.yaml`. The
+devcontainer ships with a preconfigured file at this path that sets the
+provider to `openrouter` and defaults to the `o4-mini` model. You can inspect
+the source file at `.devcontainer/goose-config.yaml`.
 
 ```bash
 export OPENROUTER_API_KEY=your-key-here
 forest open my-session
+echo "" | goose
 
 ## Sample Session
 
