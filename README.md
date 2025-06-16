@@ -1,3 +1,6 @@
+
+obsolete after a day! use https://github.com/dagger/container-use instead
+
 # Forest
 
 Forest is an opinionated Rust tool for starting and switching between
