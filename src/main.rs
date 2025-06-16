@@ -309,6 +309,8 @@ fn open_session(
         .arg(&worktree_path)
         .arg("--id-label")
         .arg(format!("name={}", podman_name))
+        // this is a bit subtle: we'll often be using the same devcontainer that vscode uses for consistency, but we don't want
+        // all the services that might attach (rust-analyzer etc).
         .arg("--skip-post-attach")
         .status()
         .map_err(|e| {
