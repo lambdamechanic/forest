@@ -312,9 +312,7 @@ fn open_session(
         .status()
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
-                anyhow::anyhow!(
-                    "devcontainer command not found. Please install @devcontainers/cli"
-                )
+                anyhow::anyhow!("devcontainer command not found. Please install @devcontainers/cli")
             } else {
                 e.into()
             }
@@ -323,28 +321,32 @@ fn open_session(
         anyhow::bail!("devcontainer up failed");
     }
     println!("Started session {}", name);
-if verbose {
-    println!("Running: devcontainer exec --workspace-folder {} bash", worktree_path.display());
-}
-let status = Command::new("devcontainer")
-    .arg("exec")
-    .arg("--workspace-folder")
-    .arg(&worktree_path)
-    .arg("bash")
-    .status()
-    .map_err(|e| {
-        if e.kind() == std::io::ErrorKind::NotFound {
-            anyhow::anyhow!(
-                "devcontainer command not found. Please install @devcontainers/cli"
-            )
-        } else {
-            e.into()
-        }
-    })?;
-if !status.success() {
-    anyhow::bail!("devcontainer exec failed");
-}
-Ok(())
+    if verbose {
+        println!(
+            "Running: devcontainer exec --workspace-folder {} --id-label name={} bash",
+            worktree_path.display(),
+            podman_name
+        );
+    }
+    let status = Command::new("devcontainer")
+        .arg("exec")
+        .arg("--workspace-folder")
+        .arg(&worktree_path)
+        .arg("--id-label")
+        .arg(format!("name={}", podman_name))
+        .arg("bash")
+        .status()
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                anyhow::anyhow!("devcontainer command not found. Please install @devcontainers/cli")
+            } else {
+                e.into()
+            }
+        })?;
+    if !status.success() {
+        anyhow::bail!("devcontainer exec failed");
+    }
+    Ok(())
 }
 
 fn kill_session(name: &str, verbose: bool) -> anyhow::Result<()> {
@@ -362,9 +364,7 @@ fn kill_session(name: &str, verbose: bool) -> anyhow::Result<()> {
         .status()
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
-                anyhow::anyhow!(
-                    "devcontainer command not found. Please install @devcontainers/cli"
-                )
+                anyhow::anyhow!("devcontainer command not found. Please install @devcontainers/cli")
             } else {
                 e.into()
             }
@@ -385,9 +385,7 @@ fn list_sessions(verbose: bool) -> anyhow::Result<()> {
         .status()
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
-                anyhow::anyhow!(
-                    "devcontainer command not found. Please install @devcontainers/cli"
-                )
+                anyhow::anyhow!("devcontainer command not found. Please install @devcontainers/cli")
             } else {
                 e.into()
             }
