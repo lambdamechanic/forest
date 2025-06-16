@@ -7,27 +7,23 @@ const STUB_SCRIPT: &str = r#"#!/bin/sh
 cmd=$1
 shift
 case "$cmd" in
-  container)
-    if [ "$1" = "exists" ]; then
-      name=$2
-      if [ -f "$PODMAN_STATE/$name" ]; then
-        exit 0
-      else
-        exit 1
-      fi
-    fi
-    ;;
-  run)
-    name=""
-    volumes=""
+  up)
+    id=""
+    mounts=""
     while [ "$#" -gt 0 ]; do
       case "$1" in
-        --name)
-          name=$2
+        --id-label)
+          id=${2#*=}
           shift 2
           ;;
-        -v)
-          volumes="$volumes $2"
+        --mount)
+          mounts="$mounts $2"
+          shift 2
+          ;;
+        --workspace-folder)
+          shift 2
+          ;;
+        --docker-path)
           shift 2
           ;;
         *)
@@ -35,39 +31,30 @@ case "$cmd" in
           ;;
       esac
     done
-    echo "$volumes" > "$PODMAN_STATE/${name}.volumes"
-    touch "$PODMAN_STATE/$name"
+    echo "$mounts" > "$DEVCONTAINER_STATE/${id}.mounts"
+    touch "$DEVCONTAINER_STATE/$id"
     exit 0
     ;;
   exec)
-    name=$2
-    input=$(cat)
-    cd "$WORKTREE_PATH"
-    sh -c "$input"
-    exit 0
-    ;;
-  build)
-    tag=""
-    dockerfile=""
-    context=""
     while [ "$#" -gt 0 ]; do
       case "$1" in
-        -t)
-          tag=$2
+        --id-label)
           shift 2
           ;;
-        -f)
-          dockerfile=$2
+        --workspace-folder)
+          shift 2
+          ;;
+        --docker-path)
           shift 2
           ;;
         *)
-          context=$1
+          cmdline="$cmdline $1"
           shift
           ;;
       esac
     done
-    echo "$dockerfile $context" > "$PODMAN_STATE/${tag}.build"
-    touch "$PODMAN_STATE/$tag"
+    cd "$WORKTREE_PATH"
+    sh -c "$cmdline"
     exit 0
     ;;
 esac
@@ -105,12 +92,12 @@ fn new_session_branch_inside_container() {
         .join(repo_name)
         .join("new-branch");
 
-    let podman_dir = tempdir().unwrap();
-    let podman_path = podman_dir.path().join("podman");
-    fs::write(&podman_path, STUB_SCRIPT).unwrap();
+    let dc_dir = tempdir().unwrap();
+    let dc_path = dc_dir.path().join("devcontainer");
+    fs::write(&dc_path, STUB_SCRIPT).unwrap();
     assert!(Command::new("chmod")
         .arg("+x")
-        .arg(&podman_path)
+        .arg(&dc_path)
         .status()
         .unwrap()
         .success());
@@ -121,13 +108,13 @@ fn new_session_branch_inside_container() {
         "PATH",
         format!(
             "{}:{}",
-            podman_dir.path().display(),
+            dc_dir.path().display(),
             std::env::var("PATH").unwrap()
         ),
     );
     cmd.env("HOME", &home_dir);
     cmd.env("WORKTREE_PATH", &worktree_path);
-    cmd.env("PODMAN_STATE", podman_dir.path());
+    cmd.env("DEVCONTAINER_STATE", dc_dir.path());
     cmd.arg("open").arg("new-branch");
     cmd.stdin(Stdio::piped());
     cmd.stdout(Stdio::piped());
@@ -191,12 +178,12 @@ fn mounts_repo_and_worktree() {
         .join(repo_name)
         .join("new-branch");
 
-    let podman_dir = tempdir().unwrap();
-    let podman_path = podman_dir.path().join("podman");
-    fs::write(&podman_path, STUB_SCRIPT).unwrap();
+    let dc_dir = tempdir().unwrap();
+    let dc_path = dc_dir.path().join("devcontainer");
+    fs::write(&dc_path, STUB_SCRIPT).unwrap();
     assert!(Command::new("chmod")
         .arg("+x")
-        .arg(&podman_path)
+        .arg(&dc_path)
         .status()
         .unwrap()
         .success());
@@ -207,13 +194,13 @@ fn mounts_repo_and_worktree() {
         "PATH",
         format!(
             "{}:{}",
-            podman_dir.path().display(),
+            dc_dir.path().display(),
             std::env::var("PATH").unwrap()
         ),
     );
     cmd.env("HOME", &home_dir);
     cmd.env("WORKTREE_PATH", &worktree_path);
-    cmd.env("PODMAN_STATE", podman_dir.path());
+    cmd.env("DEVCONTAINER_STATE", dc_dir.path());
     cmd.arg("open").arg("new-branch");
     cmd.stdin(Stdio::piped());
     cmd.stdout(Stdio::piped());
@@ -228,9 +215,12 @@ fn mounts_repo_and_worktree() {
     let out = String::from_utf8_lossy(&output.stdout);
     assert!(out.contains("new-branch"));
 
-    let volumes = fs::read_to_string(podman_dir.path().join("new-branch.volumes")).unwrap();
-    assert!(volumes.contains(&format!("{}:/repo", repo_dir.path().display())));
-    assert!(volumes.contains(&format!("{}:/code", worktree_path.display())));
+    let volumes = fs::read_to_string(dc_dir.path().join("new-branch.mounts")).unwrap();
+    assert!(volumes.contains(&format!(
+        "source={},target=/repo",
+        repo_dir.path().display()
+    )));
+    assert!(volumes.contains(&format!("source={},target=/code", worktree_path.display())));
     assert!(!volumes.contains(other_wt.to_str().unwrap()));
 }
 
@@ -274,12 +264,12 @@ fn builds_image_when_using_dockerfile() {
         .join(repo_name)
         .join("new-branch");
 
-    let podman_dir = tempdir().unwrap();
-    let podman_path = podman_dir.path().join("podman");
-    fs::write(&podman_path, STUB_SCRIPT).unwrap();
+    let dc_dir = tempdir().unwrap();
+    let dc_path = dc_dir.path().join("devcontainer");
+    fs::write(&dc_path, STUB_SCRIPT).unwrap();
     assert!(Command::new("chmod")
         .arg("+x")
-        .arg(&podman_path)
+        .arg(&dc_path)
         .status()
         .unwrap()
         .success());
@@ -290,13 +280,13 @@ fn builds_image_when_using_dockerfile() {
         "PATH",
         format!(
             "{}:{}",
-            podman_dir.path().display(),
+            dc_dir.path().display(),
             std::env::var("PATH").unwrap()
         ),
     );
     cmd.env("HOME", &home_dir);
     cmd.env("WORKTREE_PATH", &worktree_path);
-    cmd.env("PODMAN_STATE", podman_dir.path());
+    cmd.env("DEVCONTAINER_STATE", dc_dir.path());
     cmd.arg("open").arg("new-branch");
     cmd.stdin(Stdio::piped());
     cmd.stdout(Stdio::piped());
@@ -311,5 +301,5 @@ fn builds_image_when_using_dockerfile() {
     let out = String::from_utf8_lossy(&output.stdout);
     assert!(out.contains("new-branch"));
 
-    assert!(podman_dir.path().join("new-branch-image.build").exists());
+    assert!(dc_dir.path().join("new-branch.mounts").exists());
 }

@@ -6,7 +6,6 @@ use std::str;
 use clap::{Parser, Subcommand};
 use directories::ProjectDirs;
 use serde::Deserialize;
-use serde_json::Value;
 
 use std::process::Stdio;
 
@@ -228,119 +227,69 @@ fn open_session(
         println!("Using devcontainer at {}", devcontainer_path.display());
     }
 
-    let contents = fs::read_to_string(&devcontainer_path)?;
-    let value: Value = serde_json::from_str(&contents)?;
-    let image = if let Some(img) = value.get("image").and_then(|v| v.as_str()) {
-        img.to_string()
-    } else if let Some(build) = value.get("build") {
-        let dockerfile = build
-            .get("dockerfile")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("image field missing in devcontainer"))?;
-        let context = build.get("context").and_then(|v| v.as_str()).unwrap_or(".");
-        let dockerfile_path = devcontainer_path.parent().unwrap().join(dockerfile);
-        let context_path = devcontainer_path.parent().unwrap().join(context);
-        let tag = format!("{}-image", name);
-        if verbose {
-            println!(
-                "Running: podman build -t {} -f {} {}",
-                tag,
-                dockerfile_path.display(),
-                context_path.display()
-            );
-        }
-        let status = Command::new("podman")
-            .arg("build")
-            .arg("-t")
-            .arg(&tag)
-            .arg("-f")
-            .arg(&dockerfile_path)
-            .arg(&context_path)
-            .status()
-            .map_err(|e| {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    anyhow::anyhow!("podman command not found. Please install podman")
-                } else {
-                    e.into()
-                }
-            })?;
-        if !status.success() {
-            anyhow::bail!("podman build failed");
-        }
-        tag
-    } else {
-        anyhow::bail!("image field missing in devcontainer");
-    };
+    let devcontainer_dir = devcontainer_path.parent().unwrap();
+    let id_label = format!("forestSession={}", name);
 
-    // Check if container exists
     if verbose {
-        println!("Checking if container {} exists", name);
+        println!(
+            "Running: devcontainer up --workspace-folder {} --id-label {} --mount type=bind,source={},target=/repo --mount type=bind,source={},target=/code",
+            devcontainer_dir.display(),
+            id_label,
+            repo_root.display(),
+            worktree_path.display()
+        );
     }
-    let exists = Command::new("podman")
-        .args(["container", "exists", name])
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
-
-    if exists {
-        println!("Session {} already exists", name);
-    } else {
-        if verbose {
-            println!(
-                "Running: podman run -d --name {} -v {}:/repo -v {}:{} -v {}:/code -w /code --init {} sleep infinity",
-                name,
-                repo_root.display(),
-                repo_root.display(),
-                repo_root.display(),
-                worktree_path.display(),
-                image
-            );
-        }
-        let status = Command::new("podman")
-            .arg("run")
-            .arg("-d")
-            .arg("--name")
-            .arg(name)
-            .arg("-v")
-            .arg(format!("{}:/repo", repo_root.display()))
-            .arg("-v")
-            .arg(format!("{}:{}", repo_root.display(), repo_root.display()))
-            .arg("-v")
-            .arg(format!("{}:/code", worktree_path.display()))
-            .arg("-w")
-            .arg("/code")
-            .arg("--init")
-            .arg(image)
-            .arg("sleep")
-            .arg("infinity")
-            .status()
-            .map_err(|e| {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    anyhow::anyhow!("podman command not found. Please install podman")
-                } else {
-                    e.into()
-                }
-            })?;
-        if !status.success() {
-            anyhow::bail!("podman run failed");
-        }
-        println!("Started session {}", name);
-    }
-    if verbose {
-        println!("Running: podman exec -it {} bash", name);
-    }
-    let status = Command::new("podman")
-        .args(["exec", "-it", name, "bash"])
+    let status = Command::new("devcontainer")
+        .arg("up")
+        .arg("--workspace-folder")
+        .arg(devcontainer_dir)
+        .arg("--id-label")
+        .arg(&id_label)
+        .arg("--docker-path")
+        .arg("podman")
+        .arg("--mount")
+        .arg(format!(
+            "type=bind,source={},target=/repo",
+            repo_root.display()
+        ))
+        .arg("--mount")
+        .arg(format!(
+            "type=bind,source={},target=/code",
+            worktree_path.display()
+        ))
         .status()
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
-                anyhow::anyhow!("podman command not found. Please install podman")
+                anyhow::anyhow!("devcontainer command not found. Please install it")
             } else {
                 e.into()
             }
         })?;
     if !status.success() {
-        anyhow::bail!("podman exec failed");
+        anyhow::bail!("devcontainer up failed");
+    }
+    println!("Started session {}", name);
+
+    if verbose {
+        println!("Running: devcontainer exec --id-label {} bash", id_label);
+    }
+    let status = Command::new("devcontainer")
+        .arg("exec")
+        .arg("--workspace-folder")
+        .arg(devcontainer_dir)
+        .arg("--id-label")
+        .arg(&id_label)
+        .arg("bash")
+        .status()
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                anyhow::anyhow!("devcontainer command not found. Please install it")
+            } else {
+                e.into()
+            }
+        })?;
+    if !status.success() {
+        anyhow::bail!("devcontainer exec failed");
     }
     Ok(())
 }
