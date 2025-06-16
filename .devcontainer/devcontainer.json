@@ -1,6 +1,6 @@
 {
     "name": "Rust Development Environment",
-    "image": "mcr.microsoft.com/devcontainers/rust:latest",
+    "build": { "dockerfile": "Dockerfile" },
     "customizations": {
         "vscode": {
             "extensions": [
