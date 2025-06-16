@@ -7,27 +7,17 @@ const STUB_SCRIPT: &str = r#"#!/bin/sh
 cmd=$1
 shift
 case "$cmd" in
-  container)
-    if [ "$1" = "exists" ]; then
-      name=$2
-      if [ -f "$PODMAN_STATE/$name" ]; then
-        exit 0
-      else
-        exit 1
-      fi
-    fi
-    ;;
-  run)
+  build)
     name=""
-    volumes=""
+    workspace=""
     while [ "$#" -gt 0 ]; do
       case "$1" in
-        --name)
-          name=$2
+        --workspace-folder)
+          workspace=$2
           shift 2
           ;;
-        -v)
-          volumes="$volumes $2"
+        --id-label)
+          name=${2#name=}
           shift 2
           ;;
         *)
@@ -35,39 +25,64 @@ case "$cmd" in
           ;;
       esac
     done
-    echo "$volumes" > "$PODMAN_STATE/${name}.volumes"
-    touch "$PODMAN_STATE/$name"
+    echo "$workspace" > "$DEVCONTAINER_STATE/${name}.build"
+    touch "$DEVCONTAINER_STATE/$name"
+    exit 0
+    ;;
+  up)
+    name=""
+    workspace=""
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --workspace-folder)
+          workspace=$2
+          shift 2
+          ;;
+        --id-label)
+          name=${2#name=}
+          shift 2
+          ;;
+        *)
+          shift
+          ;;
+      esac
+    done
+    echo "$workspace" > "$DEVCONTAINER_STATE/${name}.workspace"
+    touch "$DEVCONTAINER_STATE/$name"
     exit 0
     ;;
   exec)
-    name=$2
-    input=$(cat)
-    cd "$WORKTREE_PATH"
-    sh -c "$input"
-    exit 0
-    ;;
-  build)
-    tag=""
-    dockerfile=""
-    context=""
+    workspace=""
     while [ "$#" -gt 0 ]; do
       case "$1" in
-        -t)
-          tag=$2
-          shift 2
-          ;;
-        -f)
-          dockerfile=$2
+        --workspace-folder)
+          workspace=$2
           shift 2
           ;;
         *)
-          context=$1
+          break
+          ;;
+      esac
+    done
+    input=$(cat)
+    cd "$workspace"
+    sh -c "$input"
+    exit 0
+    ;;
+  down)
+    name=""
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --id-label)
+          name=${2#name=}
+          shift 2
+          ;;
+        *)
           shift
           ;;
       esac
     done
-    echo "$dockerfile $context" > "$PODMAN_STATE/${tag}.build"
-    touch "$PODMAN_STATE/$tag"
+    rm -f "$DEVCONTAINER_STATE/$name" "$DEVCONTAINER_STATE/${name}.workspace" "$DEVCONTAINER_STATE/${name}.build"
     exit 0
     ;;
 esac
@@ -106,7 +121,7 @@ fn new_session_branch_inside_container() {
         .join("new-branch");
 
     let podman_dir = tempdir().unwrap();
-    let podman_path = podman_dir.path().join("podman");
+    let podman_path = podman_dir.path().join("devcontainer");
     fs::write(&podman_path, STUB_SCRIPT).unwrap();
     assert!(Command::new("chmod")
         .arg("+x")
@@ -127,7 +142,7 @@ fn new_session_branch_inside_container() {
     );
     cmd.env("HOME", &home_dir);
     cmd.env("WORKTREE_PATH", &worktree_path);
-    cmd.env("PODMAN_STATE", podman_dir.path());
+    cmd.env("DEVCONTAINER_STATE", podman_dir.path());
     cmd.arg("open").arg("new-branch");
     cmd.stdin(Stdio::piped());
     cmd.stdout(Stdio::piped());
@@ -192,7 +207,7 @@ fn mounts_repo_and_worktree() {
         .join("new-branch");
 
     let podman_dir = tempdir().unwrap();
-    let podman_path = podman_dir.path().join("podman");
+    let podman_path = podman_dir.path().join("devcontainer");
     fs::write(&podman_path, STUB_SCRIPT).unwrap();
     assert!(Command::new("chmod")
         .arg("+x")
@@ -213,7 +228,7 @@ fn mounts_repo_and_worktree() {
     );
     cmd.env("HOME", &home_dir);
     cmd.env("WORKTREE_PATH", &worktree_path);
-    cmd.env("PODMAN_STATE", podman_dir.path());
+    cmd.env("DEVCONTAINER_STATE", podman_dir.path());
     cmd.arg("open").arg("new-branch");
     cmd.stdin(Stdio::piped());
     cmd.stdout(Stdio::piped());
@@ -228,10 +243,8 @@ fn mounts_repo_and_worktree() {
     let out = String::from_utf8_lossy(&output.stdout);
     assert!(out.contains("new-branch"));
 
-    let volumes = fs::read_to_string(podman_dir.path().join("new-branch.volumes")).unwrap();
-    assert!(volumes.contains(&format!("{}:/repo", repo_dir.path().display())));
-    assert!(volumes.contains(&format!("{}:/code", worktree_path.display())));
-    assert!(!volumes.contains(other_wt.to_str().unwrap()));
+    let workspace = fs::read_to_string(podman_dir.path().join("new-branch.workspace")).unwrap();
+    assert_eq!(workspace.trim(), worktree_path.to_str().unwrap());
 }
 
 #[test]
@@ -275,7 +288,7 @@ fn builds_image_when_using_dockerfile() {
         .join("new-branch");
 
     let podman_dir = tempdir().unwrap();
-    let podman_path = podman_dir.path().join("podman");
+    let podman_path = podman_dir.path().join("devcontainer");
     fs::write(&podman_path, STUB_SCRIPT).unwrap();
     assert!(Command::new("chmod")
         .arg("+x")
@@ -296,7 +309,7 @@ fn builds_image_when_using_dockerfile() {
     );
     cmd.env("HOME", &home_dir);
     cmd.env("WORKTREE_PATH", &worktree_path);
-    cmd.env("PODMAN_STATE", podman_dir.path());
+    cmd.env("DEVCONTAINER_STATE", podman_dir.path());
     cmd.arg("open").arg("new-branch");
     cmd.stdin(Stdio::piped());
     cmd.stdout(Stdio::piped());
@@ -311,7 +324,7 @@ fn builds_image_when_using_dockerfile() {
     let out = String::from_utf8_lossy(&output.stdout);
     assert!(out.contains("new-branch"));
 
-    assert!(podman_dir.path().join("new-branch-image.build").exists());
+    assert!(podman_dir.path().join("new-branch.build").exists());
 }
 
 #[test]
@@ -347,7 +360,7 @@ fn podman_name_sanitizes_branch() {
         .join("cool");
 
     let podman_dir = tempdir().unwrap();
-    let podman_path = podman_dir.path().join("podman");
+    let podman_path = podman_dir.path().join("devcontainer");
     fs::write(&podman_path, STUB_SCRIPT).unwrap();
     assert!(Command::new("chmod")
         .arg("+x")
@@ -368,7 +381,7 @@ fn podman_name_sanitizes_branch() {
     );
     cmd.env("HOME", &home_dir);
     cmd.env("WORKTREE_PATH", &worktree_path);
-    cmd.env("PODMAN_STATE", podman_dir.path());
+    cmd.env("DEVCONTAINER_STATE", podman_dir.path());
     cmd.arg("open").arg("feat/cool");
     cmd.stdin(Stdio::piped());
     cmd.stdout(Stdio::piped());
@@ -383,5 +396,5 @@ fn podman_name_sanitizes_branch() {
     let out = String::from_utf8_lossy(&output.stdout);
     assert!(out.contains("feat/cool"));
 
-    assert!(podman_dir.path().join("feat-cool.volumes").exists());
+    assert!(podman_dir.path().join("feat-cool.workspace").exists());
 }
