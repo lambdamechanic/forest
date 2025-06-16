@@ -35,6 +35,7 @@ case "$cmd" in
   up)
     name=""
     workspace=""
+    mounts=""
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --workspace-folder)
@@ -45,12 +46,17 @@ case "$cmd" in
           name=${2#name=}
           shift 2
           ;;
+        --mount)
+          mounts="$mounts $2"
+          shift 2
+          ;;
         *)
           shift
           ;;
       esac
     done
     echo "$workspace" > "$DEVCONTAINER_STATE/${name}.workspace"
+    echo "$mounts" > "$DEVCONTAINER_STATE/${name}.mounts"
     touch "$DEVCONTAINER_STATE/$name"
     exit 0
     ;;
@@ -248,6 +254,9 @@ fn mounts_repo_and_worktree() {
 
     let workspace = fs::read_to_string(podman_dir.path().join("new-branch.workspace")).unwrap();
     assert_eq!(workspace.trim(), worktree_path.to_str().unwrap());
+
+    let mounts = fs::read_to_string(podman_dir.path().join("new-branch.mounts")).unwrap();
+    assert!(mounts.contains(repo_dir.path().to_str().unwrap()));
 }
 
 #[test]

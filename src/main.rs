@@ -10,6 +10,13 @@ use serde_json::Value;
 
 use std::process::Stdio;
 
+fn run_command_verbose(cmd: &mut Command, verbose: bool) -> std::io::Result<std::process::ExitStatus> {
+    if verbose {
+        println!("Running: {:?}", cmd);
+    }
+    cmd.status()
+}
+
 fn sanitize_podman_name(branch: &str) -> String {
     let mut name: String = branch
         .chars()
@@ -72,10 +79,9 @@ fn ensure_git_setup(branch: &str, config: &Config, verbose: bool) -> anyhow::Res
         if verbose {
             println!("Creating git branch {}", branch);
         }
-        let status = Command::new("git")
-            .args(["branch", branch])
-            .current_dir(&repo_root)
-            .status()?;
+        let mut cmd = Command::new("git");
+        cmd.args(["branch", branch]).current_dir(&repo_root);
+        let status = run_command_verbose(&mut cmd, verbose)?;
         if !status.success() {
             anyhow::bail!("git branch failed");
         }
@@ -98,18 +104,18 @@ fn ensure_git_setup(branch: &str, config: &Config, verbose: bool) -> anyhow::Res
         if let Some(org) = &config.githuborg {
             let repo_name = repo_root.file_name().unwrap_or_default().to_string_lossy();
             let repo_spec = format!("{}/{}", org, repo_name);
-            let status = Command::new("gh")
-                .args([
-                    "repo",
-                    "create",
-                    &repo_spec,
-                    "--source",
-                    repo_root.to_str().unwrap(),
-                    "--remote",
-                    "origin",
-                    "--push",
-                ])
-                .status()?;
+            let mut cmd = Command::new("gh");
+            cmd.args([
+                "repo",
+                "create",
+                &repo_spec,
+                "--source",
+                repo_root.to_str().unwrap(),
+                "--remote",
+                "origin",
+                "--push",
+            ]);
+            let status = run_command_verbose(&mut cmd, verbose)?;
             if !status.success() {
                 anyhow::bail!("gh repo create failed");
             }
@@ -244,16 +250,16 @@ fn open_session(
             println!("Creating worktree at {}", worktree_path.display());
         }
         fs::create_dir_all(&worktree_root)?;
-        let status = Command::new("git")
-            .args([
-                "worktree",
-                "add",
-                "-B",
-                name,
-                worktree_path.to_str().unwrap(),
-            ])
-            .current_dir(&repo_root)
-            .status()?;
+        let mut cmd = Command::new("git");
+        cmd.args([
+            "worktree",
+            "add",
+            "-B",
+            name,
+            worktree_path.to_str().unwrap(),
+        ])
+        .current_dir(&repo_root);
+        let status = run_command_verbose(&mut cmd, verbose)?;
         if !status.success() {
             anyhow::bail!("git worktree add failed");
         }
@@ -271,81 +277,65 @@ fn open_session(
     }
 
     if value.get("build").is_some() {
-        if verbose {
-            println!(
-                "Running: devcontainer build --workspace-folder {}",
-                worktree_path.display()
-            );
-        }
-        let status = Command::new("devcontainer")
-            .arg("build")
+        let mut cmd = Command::new("devcontainer");
+        cmd.arg("build")
             .arg("--workspace-folder")
-            .arg(&worktree_path)
-            .status()
-            .map_err(|e| {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    anyhow::anyhow!(
-                        "devcontainer command not found. Please install @devcontainers/cli"
-                    )
-                } else {
-                    e.into()
-                }
-            })?;
+            .arg(&worktree_path);
+        let status = run_command_verbose(&mut cmd, verbose).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                anyhow::anyhow!(
+                    "devcontainer command not found. Please install @devcontainers/cli"
+                )
+            } else {
+                e.into()
+            }
+        })?;
         if !status.success() {
             anyhow::bail!("devcontainer build failed");
         }
     }
 
-    if verbose {
-        println!(
-            "Running: devcontainer up --workspace-folder {} --id-label name={}",
-            worktree_path.display(),
-            podman_name
-        );
-    }
-    let status = Command::new("devcontainer")
-        .arg("up")
+    let mut cmd = Command::new("devcontainer");
+    cmd.arg("up")
         .arg("--workspace-folder")
         .arg(&worktree_path)
         .arg("--id-label")
         .arg(format!("name={}", podman_name))
+        .arg("--mount")
+        .arg(format!(
+            "type=bind,source={},target={}",
+            repo_root.display(),
+            repo_root.display()
+        ))
         // this is a bit subtle: we'll often be using the same devcontainer that vscode uses for consistency, but we don't want
         // all the services that might attach (rust-analyzer etc).
-        .arg("--skip-post-attach")
-        .status()
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                anyhow::anyhow!("devcontainer command not found. Please install @devcontainers/cli")
-            } else {
-                e.into()
-            }
-        })?;
+        .arg("--skip-post-attach");
+    let status = run_command_verbose(&mut cmd, verbose).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            anyhow::anyhow!("devcontainer command not found. Please install @devcontainers/cli")
+        } else {
+            e.into()
+        }
+    })?;
+  
     if !status.success() {
         anyhow::bail!("devcontainer up failed");
     }
     println!("Started session {}", name);
-    if verbose {
-        println!(
-            "Running: devcontainer exec --workspace-folder {} --id-label name={} bash",
-            worktree_path.display(),
-            podman_name
-        );
-    }
-    let status = Command::new("devcontainer")
-        .arg("exec")
+    let mut cmd = Command::new("devcontainer");
+    cmd.arg("exec")
         .arg("--workspace-folder")
         .arg(&worktree_path)
         .arg("--id-label")
         .arg(format!("name={}", podman_name))
-        .arg("bash")
-        .status()
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                anyhow::anyhow!("devcontainer command not found. Please install @devcontainers/cli")
-            } else {
-                e.into()
-            }
-        })?;
+        .arg("bash");
+    let status = run_command_verbose(&mut cmd, verbose).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            anyhow::anyhow!("devcontainer command not found. Please install @devcontainers/cli")
+        } else {
+            e.into()
+        }
+    })?;
     if !status.success() {
         anyhow::bail!("devcontainer exec failed");
     }
@@ -353,25 +343,21 @@ fn open_session(
 }
 
 fn kill_session(name: &str, verbose: bool) -> anyhow::Result<()> {
-    if verbose {
-        println!("Running: devcontainer down --id-label name={}", name);
-    }
     let podman_name = sanitize_podman_name(name);
     if !valid_podman_name(&podman_name) {
         anyhow::bail!("invalid session name: {}", name);
     }
-    let status = Command::new("devcontainer")
-        .arg("down")
+    let mut cmd = Command::new("devcontainer");
+    cmd.arg("down")
         .arg("--id-label")
-        .arg(format!("name={}", podman_name))
-        .status()
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                anyhow::anyhow!("devcontainer command not found. Please install @devcontainers/cli")
-            } else {
-                e.into()
-            }
-        })?;
+        .arg(format!("name={}", podman_name));
+    let status = run_command_verbose(&mut cmd, verbose).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            anyhow::anyhow!("devcontainer command not found. Please install @devcontainers/cli")
+        } else {
+            e.into()
+        }
+    })?;
     if !status.success() {
         anyhow::bail!("devcontainer down failed");
     }
@@ -380,19 +366,15 @@ fn kill_session(name: &str, verbose: bool) -> anyhow::Result<()> {
 }
 
 fn list_sessions(verbose: bool) -> anyhow::Result<()> {
-    if verbose {
-        println!("Running: devcontainer list");
-    }
-    Command::new("devcontainer")
-        .arg("list")
-        .status()
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                anyhow::anyhow!("devcontainer command not found. Please install @devcontainers/cli")
-            } else {
-                e.into()
-            }
-        })?;
+    let mut cmd = Command::new("devcontainer");
+    cmd.arg("list");
+    run_command_verbose(&mut cmd, verbose).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            anyhow::anyhow!("devcontainer command not found. Please install @devcontainers/cli")
+        } else {
+            e.into()
+        }
+    })?;
     Ok(())
 }
 
