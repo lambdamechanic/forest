@@ -309,6 +309,12 @@ fn open_session(
         .arg(&worktree_path)
         .arg("--id-label")
         .arg(format!("name={}", podman_name))
+        .arg("--mount")
+        .arg(format!(
+            "type=bind,source={},target={}",
+            repo_root.display(),
+            repo_root.display()
+        ))
         .status()
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
