@@ -10,6 +10,37 @@ use serde_json::Value;
 
 use std::process::Stdio;
 
+fn sanitize_podman_name(branch: &str) -> String {
+    let mut name: String = branch
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    if name
+        .chars()
+        .next()
+        .map(|c| !c.is_ascii_alphanumeric())
+        .unwrap_or(true)
+    {
+        name.insert(0, 's');
+    }
+    name
+}
+
+fn valid_podman_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphanumeric() => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-')
+}
+
 fn ensure_git_setup(branch: &str, config: &Config, verbose: bool) -> anyhow::Result<()> {
     // Are we inside a git repository?
     if verbose {
@@ -188,6 +219,11 @@ fn open_session(
 ) -> anyhow::Result<()> {
     ensure_git_setup(name, config, verbose)?;
 
+    let podman_name = sanitize_podman_name(name);
+    if !valid_podman_name(&podman_name) {
+        anyhow::bail!("invalid session name: {}", name);
+    }
+
     // Determine repository root and worktree path
     let output = Command::new("git")
         .args(["rev-parse", "--show-toplevel"])
@@ -240,7 +276,7 @@ fn open_session(
         let context = build.get("context").and_then(|v| v.as_str()).unwrap_or(".");
         let dockerfile_path = devcontainer_path.parent().unwrap().join(dockerfile);
         let context_path = devcontainer_path.parent().unwrap().join(context);
-        let tag = format!("{}-image", name);
+        let tag = format!("{}-image", podman_name);
         if verbose {
             println!(
                 "Running: podman build -t {} -f {} {}",
@@ -277,7 +313,7 @@ fn open_session(
         println!("Checking if container {} exists", name);
     }
     let exists = Command::new("podman")
-        .args(["container", "exists", name])
+        .args(["container", "exists", &podman_name])
         .status()
         .map(|s| s.success())
         .unwrap_or(false);
@@ -300,7 +336,7 @@ fn open_session(
             .arg("run")
             .arg("-d")
             .arg("--name")
-            .arg(name)
+            .arg(&podman_name)
             .arg("-v")
             .arg(format!("{}:/repo", repo_root.display()))
             .arg("-v")
@@ -330,7 +366,7 @@ fn open_session(
         println!("Running: podman exec -it {} bash", name);
     }
     let status = Command::new("podman")
-        .args(["exec", "-it", name, "bash"])
+        .args(["exec", "-it", &podman_name, "bash"])
         .status()
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
@@ -349,8 +385,12 @@ fn kill_session(name: &str, verbose: bool) -> anyhow::Result<()> {
     if verbose {
         println!("Running: podman rm -f {}", name);
     }
+    let podman_name = sanitize_podman_name(name);
+    if !valid_podman_name(&podman_name) {
+        anyhow::bail!("invalid session name: {}", name);
+    }
     let status = Command::new("podman")
-        .args(["rm", "-f", name])
+        .args(["rm", "-f", &podman_name])
         .status()
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
