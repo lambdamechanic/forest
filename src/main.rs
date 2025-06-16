@@ -354,12 +354,14 @@ fn command_exists(cmd: &str) -> bool {
 }
 
 fn precheck(verbose: bool) -> anyhow::Result<()> {
+    let mut errors = Vec::new();
+
     for cmd in ["podman", "git", "gh"] {
         if verbose {
             println!("Checking for {}", cmd);
         }
         if !command_exists(cmd) {
-            anyhow::bail!("{} command not found", cmd);
+            errors.push(format!("{} command not found", cmd));
         }
     }
 
@@ -368,18 +370,35 @@ fn precheck(verbose: bool) -> anyhow::Result<()> {
         if verbose {
             println!("Checking config {}", path.display());
         }
-        let content = fs::read_to_string(&path)
-            .map_err(|_| anyhow::anyhow!("config file {} not found", path.display()))?;
-        toml::from_str::<Config>(&content)
-            .map_err(|e| anyhow::anyhow!("failed to parse {}: {}", path.display(), e))?;
+        match fs::read_to_string(&path) {
+            Ok(content) => {
+                if let Err(e) = toml::from_str::<Config>(&content) {
+                    errors.push(format!("failed to parse {}: {}", path.display(), e));
+                }
+            }
+            Err(_) => errors.push(format!("config file {} not found", path.display())),
+        }
     } else {
-        anyhow::bail!("could not determine configuration directory");
+        errors.push("could not determine configuration directory".to_string());
     }
 
-    if verbose {
-        println!("All checks passed");
+    if errors.is_empty() {
+        if verbose {
+            println!("All checks passed");
+        }
+        Ok(())
+    } else {
+        println!("Precheck found issues:");
+        for e in &errors {
+            println!("- {}", e);
+        }
+        let joined = errors
+            .iter()
+            .map(|e| format!("- {}", e))
+            .collect::<Vec<_>>()
+            .join("\n");
+        anyhow::bail!("precheck failed:\n{}", joined)
     }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -406,5 +425,54 @@ mod tests {
     fn command_exists_detects_commands() {
         assert!(command_exists("true"));
         assert!(!command_exists("definitely_not_a_command"));
+    }
+
+    #[test]
+    fn precheck_collects_multiple_errors() {
+        let bin_dir = tempdir().unwrap();
+        let git_path = bin_dir.path().join("git");
+        fs::write(&git_path, "#!/bin/sh\nexit 0\n").unwrap();
+        Command::new("/usr/bin/chmod")
+            .arg("+x")
+            .arg(&git_path)
+            .status()
+            .unwrap();
+
+        env::set_var("PATH", bin_dir.path());
+
+        let home_dir = tempdir().unwrap();
+        env::set_var("HOME", home_dir.path());
+        env::set_var("XDG_CONFIG_HOME", home_dir.path());
+
+        let result = precheck(false);
+        assert!(result.is_err());
+        let err = format!("{}", result.unwrap_err());
+        assert!(err.contains("podman command not found"));
+        assert!(err.contains("gh command not found"));
+        assert!(err.contains("config file"));
+    }
+
+    #[test]
+    fn precheck_succeeds_with_all_requirements() {
+        let bin_dir = tempdir().unwrap();
+        for cmd in ["git", "podman", "gh"] {
+            let path = bin_dir.path().join(cmd);
+            fs::write(&path, "#!/bin/sh\nexit 0\n").unwrap();
+            Command::new("/usr/bin/chmod")
+                .arg("+x")
+                .arg(&path)
+                .status()
+                .unwrap();
+        }
+        env::set_var("PATH", bin_dir.path());
+
+        let home_dir = tempdir().unwrap();
+        env::set_var("HOME", home_dir.path());
+        env::set_var("XDG_CONFIG_HOME", home_dir.path());
+        let config_dir = home_dir.path().join("forest");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::write(config_dir.join("forest.toml"), "githuborg = 'foo'\n").unwrap();
+
+        assert!(precheck(false).is_ok());
     }
 }
