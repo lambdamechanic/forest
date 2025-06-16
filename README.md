@@ -1,23 +1,26 @@
-# forest
+# Forest
 
-forest is an opinionated rust tool for starting & switching between podman/devcontainer environments.
+Forest is an opinionated Rust tool for starting and switching between
+Podman/devcontainer environments.
 
-each session has its own git branch, named the same as the session.
-we assume there is a git remote called "origin".
+Each session runs on its own Git branch (named the same as the session) and
+expects a remote named `origin`.
 
-we map the repo into the devcontainer, but start a worktree at ~/worktrees/$reponame/$branchname which is mapped to  /code inside the container which is where all changes are made
-(apart from git, behind the scenes.)
+The repository is mounted inside the devcontainer but the working tree lives at
+`~/worktrees/<repo>/<branch>` which is mapped to `/code` in the container.
+All Git operations are handled outside the container.
 
 ## Requirements
-- gh tool from github
-- git
-- podman
+- `gh` from GitHub
+- `git`
+- `podman`
 
-The repository must include a `devcontainer.json` file. The tool looks for:
+The repository must include a `devcontainer.json` file. The tool searches in
+the following locations (in order):
 
-* `.devcontainer.json`
-* `.devcontainer/devcontainer.json`
-* `.devcontainer/<env>/devcontainer.json` when using `--devcontainer-env <env>`
+- `.devcontainer.json`
+- `.devcontainer/devcontainer.json`
+- `.devcontainer/<env>/devcontainer.json` when using `--devcontainer-env <env>`
 
 The selected `devcontainer.json` must specify either an `image` field or a
 `build.dockerfile` which will be built and used to launch the container.
@@ -26,22 +29,20 @@ If no configuration is found, `forest` will scaffold `.devcontainer/devcontainer
 using the latest Ubuntu image.
 
 ## Features
-- forest open $name [--devcontainer-env ENV] # open the session using the
+- `forest open <name> [--devcontainer-env ENV]` – open a session using the
   `devcontainer.json` from `.devcontainer/ENV` (or the default location if not
-  provided). The session is created if it doesn't exist. Once the container is
-  running (or if it already exists) a shell is opened inside the container. We
-  derive the git repo from the current folder. If there is a git repo but no
-  GitHub repo, create it under `githuborg` from the config. When opening a
-  session we also ensure the `origin` remote exists (creating it with `gh repo
-  create` when missing) and create a local branch matching the session name if
-  it doesn't already exist.
-- forest kill $name # destroy the session.
-- forest ls # list all sessions
-- forest precheck # verify required tools and config
+  provided). The session is created if it doesn't exist. When the container is
+  running a shell is opened inside it. If the repository is not on GitHub, it is
+  created under `githuborg` from the config. A local branch matching the session
+  name is prepared and a remote `origin` is ensured (created with `gh repo
+  create` when missing).
+- `forest kill <name>` – destroy the session.
+- `forest ls` – list all sessions.
+- `forest precheck` – verify required tools and configuration.
 
 ## configuration
 
-~/.config/forest.toml
+Forest reads configuration from `~/.config/forest.toml`.
 
 ## Passing credentials to the devcontainer
 
@@ -53,4 +54,22 @@ container via `remoteEnv` in `.devcontainer/devcontainer.json`.
 ```bash
 export OPENROUTER_API_KEY=your-key-here
 forest open my-session
+
+## Sample Session
+
+```bash
+# start a new development session
+forest open feature-xyz
+
+# make some changes inside the container
+echo "// TODO" >> src/main.rs
+git commit -am "Add TODO marker"
+
+# push the branch and open a pull request
+git push -u origin feature-xyz
+gh pr create --fill
+
+# press Ctrl-D to exit the container so the next command runs on the host
+# when finished, stop the session
+forest kill feature-xyz
 ```
