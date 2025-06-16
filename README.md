@@ -1,7 +1,7 @@
 # Forest
 
 Forest is an opinionated Rust tool for starting and switching between
-Podman/devcontainer environments.
+devcontainer environments.
 
 Each session runs on its own Git branch (named the same as the session) and
 expects a remote named `origin`.
@@ -13,7 +13,7 @@ All Git operations are handled outside the container.
 ## Requirements
 - `gh` from GitHub
 - `git`
-- `podman`
+- `devcontainer` CLI
 
 The repository must include a `devcontainer.json` file. The tool searches in
 the following locations (in order):

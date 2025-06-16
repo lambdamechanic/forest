@@ -266,141 +266,113 @@ fn open_session(
 
     let contents = fs::read_to_string(&devcontainer_path)?;
     let value: Value = serde_json::from_str(&contents)?;
-    let image = if let Some(img) = value.get("image").and_then(|v| v.as_str()) {
-        img.to_string()
-    } else if let Some(build) = value.get("build") {
-        let dockerfile = build
-            .get("dockerfile")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("image field missing in devcontainer"))?;
-        let context = build.get("context").and_then(|v| v.as_str()).unwrap_or(".");
-        let dockerfile_path = devcontainer_path.parent().unwrap().join(dockerfile);
-        let context_path = devcontainer_path.parent().unwrap().join(context);
-        let tag = format!("{}-image", podman_name);
-        if verbose {
-            println!(
-                "Running: podman build -t {} -f {} {}",
-                tag,
-                dockerfile_path.display(),
-                context_path.display()
-            );
-        }
-        let status = Command::new("podman")
-            .arg("build")
-            .arg("-t")
-            .arg(&tag)
-            .arg("-f")
-            .arg(&dockerfile_path)
-            .arg(&context_path)
-            .status()
-            .map_err(|e| {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    anyhow::anyhow!("podman command not found. Please install podman")
-                } else {
-                    e.into()
-                }
-            })?;
-        if !status.success() {
-            anyhow::bail!("podman build failed");
-        }
-        tag
-    } else {
+    if value.get("image").is_none() && value.get("build").is_none() {
         anyhow::bail!("image field missing in devcontainer");
-    };
-
-    // Check if container exists
-    if verbose {
-        println!("Checking if container {} exists", name);
     }
-    let exists = Command::new("podman")
-        .args(["container", "exists", &podman_name])
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
 
-    if exists {
-        println!("Session {} already exists", name);
-    } else {
+    if value.get("build").is_some() {
         if verbose {
             println!(
-                "Running: podman run -d --name {} -v {}:/repo -v {}:{} -v {}:/code -w /code --init {} sleep infinity",
-                name,
-                repo_root.display(),
-                repo_root.display(),
-                repo_root.display(),
-                worktree_path.display(),
-                image
+                "Running: devcontainer build --workspace-folder {}",
+                worktree_path.display()
             );
         }
-        let status = Command::new("podman")
-            .arg("run")
-            .arg("-d")
-            .arg("--name")
-            .arg(&podman_name)
-            .arg("-v")
-            .arg(format!("{}:/repo", repo_root.display()))
-            .arg("-v")
-            .arg(format!("{}:{}", repo_root.display(), repo_root.display()))
-            .arg("-v")
-            .arg(format!("{}:/code", worktree_path.display()))
-            .arg("-w")
-            .arg("/code")
-            .arg("--init")
-            .arg(image)
-            .arg("sleep")
-            .arg("infinity")
+        let status = Command::new("devcontainer")
+            .arg("build")
+            .arg("--workspace-folder")
+            .arg(&worktree_path)
+            .arg("--id-label")
+            .arg(format!("name={}", podman_name))
             .status()
             .map_err(|e| {
                 if e.kind() == std::io::ErrorKind::NotFound {
-                    anyhow::anyhow!("podman command not found. Please install podman")
+                    anyhow::anyhow!(
+                        "devcontainer command not found. Please install @devcontainers/cli"
+                    )
                 } else {
                     e.into()
                 }
             })?;
         if !status.success() {
-            anyhow::bail!("podman run failed");
+            anyhow::bail!("devcontainer build failed");
         }
-        println!("Started session {}", name);
     }
+
     if verbose {
-        println!("Running: podman exec -it {} bash", name);
+        println!(
+            "Running: devcontainer up --workspace-folder {} --id-label name={}",
+            worktree_path.display(),
+            podman_name
+        );
     }
-    let status = Command::new("podman")
-        .args(["exec", "-it", &podman_name, "bash"])
+    let status = Command::new("devcontainer")
+        .arg("up")
+        .arg("--workspace-folder")
+        .arg(&worktree_path)
+        .arg("--id-label")
+        .arg(format!("name={}", podman_name))
         .status()
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
-                anyhow::anyhow!("podman command not found. Please install podman")
+                anyhow::anyhow!(
+                    "devcontainer command not found. Please install @devcontainers/cli"
+                )
             } else {
                 e.into()
             }
         })?;
     if !status.success() {
-        anyhow::bail!("podman exec failed");
+        anyhow::bail!("devcontainer up failed");
     }
-    Ok(())
+    println!("Started session {}", name);
+if verbose {
+    println!("Running: devcontainer exec --workspace-folder {} bash", worktree_path.display());
+}
+let status = Command::new("devcontainer")
+    .arg("exec")
+    .arg("--workspace-folder")
+    .arg(&worktree_path)
+    .arg("bash")
+    .status()
+    .map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            anyhow::anyhow!(
+                "devcontainer command not found. Please install @devcontainers/cli"
+            )
+        } else {
+            e.into()
+        }
+    })?;
+if !status.success() {
+    anyhow::bail!("devcontainer exec failed");
+}
+Ok(())
 }
 
 fn kill_session(name: &str, verbose: bool) -> anyhow::Result<()> {
     if verbose {
-        println!("Running: podman rm -f {}", name);
+        println!("Running: devcontainer down --id-label name={}", name);
     }
     let podman_name = sanitize_podman_name(name);
     if !valid_podman_name(&podman_name) {
         anyhow::bail!("invalid session name: {}", name);
     }
-    let status = Command::new("podman")
-        .args(["rm", "-f", &podman_name])
+    let status = Command::new("devcontainer")
+        .arg("down")
+        .arg("--id-label")
+        .arg(format!("name={}", podman_name))
         .status()
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
-                anyhow::anyhow!("podman command not found. Please install podman")
+                anyhow::anyhow!(
+                    "devcontainer command not found. Please install @devcontainers/cli"
+                )
             } else {
                 e.into()
             }
         })?;
     if !status.success() {
-        anyhow::bail!("podman rm failed");
+        anyhow::bail!("devcontainer down failed");
     }
     println!("Killed session {}", name);
     Ok(())
@@ -408,15 +380,20 @@ fn kill_session(name: &str, verbose: bool) -> anyhow::Result<()> {
 
 fn list_sessions(verbose: bool) -> anyhow::Result<()> {
     if verbose {
-        println!("Running: podman ps");
+        println!("Running: devcontainer list");
     }
-    Command::new("podman").arg("ps").status().map_err(|e| {
-        if e.kind() == std::io::ErrorKind::NotFound {
-            anyhow::anyhow!("podman command not found. Please install podman")
-        } else {
-            e.into()
-        }
-    })?;
+    Command::new("devcontainer")
+        .arg("list")
+        .status()
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                anyhow::anyhow!(
+                    "devcontainer command not found. Please install @devcontainers/cli"
+                )
+            } else {
+                e.into()
+            }
+        })?;
     Ok(())
 }
 
@@ -433,7 +410,7 @@ fn command_exists(cmd: &str) -> bool {
 fn precheck(verbose: bool) -> anyhow::Result<()> {
     let mut errors = Vec::new();
 
-    for cmd in ["podman", "git", "gh"] {
+    for cmd in ["devcontainer", "git", "gh"] {
         if verbose {
             println!("Checking for {}", cmd);
         }
@@ -524,7 +501,7 @@ mod tests {
         let result = precheck(false);
         assert!(result.is_err());
         let err = format!("{}", result.unwrap_err());
-        assert!(err.contains("podman command not found"));
+        assert!(err.contains("devcontainer command not found"));
         assert!(err.contains("gh command not found"));
         assert!(err.contains("config file"));
     }
@@ -532,7 +509,7 @@ mod tests {
     #[test]
     fn precheck_succeeds_with_all_requirements() {
         let bin_dir = tempdir().unwrap();
-        for cmd in ["git", "podman", "gh"] {
+        for cmd in ["git", "devcontainer", "gh"] {
             let path = bin_dir.path().join(cmd);
             fs::write(&path, "#!/bin/sh\nexit 0\n").unwrap();
             Command::new("/usr/bin/chmod")
