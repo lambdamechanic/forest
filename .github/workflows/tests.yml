@@ -10,20 +10,20 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - name: Set up Rust
-        uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Build test image (cached)
+        uses: docker/build-push-action@v6
         with:
-          toolchain: stable
-          override: true
-      - name: Configure git
-        run: |
-          git config --global user.name "CI"
-          git config --global user.email "ci@example.com"
-      - name: Cache gh and podman
-        uses: awalsh128/cache-apt-pkgs-action@v1
-        with:
-          packages: gh podman
-          version: 1
+          context: .
+          file: ./Dockerfile
+          target: builder
+          tags: forest:builder
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
       - name: Run tests
-        run: cargo test --verbose
+        run: |
+          docker run --rm forest:builder bash -c "git config --global user.name 'CI' && git config --global user.email 'ci@example.com' && cargo test --verbose"
+
