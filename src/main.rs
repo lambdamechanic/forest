@@ -309,6 +309,7 @@ fn open_session(
         .arg(&worktree_path)
         .arg("--id-label")
         .arg(format!("name={}", podman_name))
+        .arg("--skip-post-attach")
         .status()
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
