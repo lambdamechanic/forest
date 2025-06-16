@@ -25,6 +25,9 @@ case "$cmd" in
           ;;
       esac
     done
+    if [ -z "$name" ]; then
+      name=$(basename "$workspace")
+    fi
     echo "$workspace" > "$DEVCONTAINER_STATE/${name}.build"
     touch "$DEVCONTAINER_STATE/$name"
     exit 0

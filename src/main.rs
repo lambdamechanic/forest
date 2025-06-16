@@ -281,8 +281,6 @@ fn open_session(
             .arg("build")
             .arg("--workspace-folder")
             .arg(&worktree_path)
-            .arg("--id-label")
-            .arg(format!("name={}", podman_name))
             .status()
             .map_err(|e| {
                 if e.kind() == std::io::ErrorKind::NotFound {
