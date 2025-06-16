@@ -313,3 +313,75 @@ fn builds_image_when_using_dockerfile() {
 
     assert!(podman_dir.path().join("new-branch-image.build").exists());
 }
+
+#[test]
+fn podman_name_sanitizes_branch() {
+    let repo_dir = tempdir().unwrap();
+    assert!(Command::new("git")
+        .args(["init", "-b", "main"])
+        .current_dir(&repo_dir)
+        .status()
+        .unwrap()
+        .success());
+    fs::write(repo_dir.path().join("file"), "hello").unwrap();
+    assert!(Command::new("git")
+        .args(["add", "."])
+        .current_dir(&repo_dir)
+        .status()
+        .unwrap()
+        .success());
+    assert!(Command::new("git")
+        .args(["commit", "-m", "init"])
+        .current_dir(&repo_dir)
+        .status()
+        .unwrap()
+        .success());
+
+    let home_dir = repo_dir.path().join("home");
+    fs::create_dir(&home_dir).unwrap();
+    let repo_name = repo_dir.path().file_name().unwrap().to_str().unwrap();
+    let worktree_path = home_dir
+        .join("worktrees")
+        .join(repo_name)
+        .join("feat")
+        .join("cool");
+
+    let podman_dir = tempdir().unwrap();
+    let podman_path = podman_dir.path().join("podman");
+    fs::write(&podman_path, STUB_SCRIPT).unwrap();
+    assert!(Command::new("chmod")
+        .arg("+x")
+        .arg(&podman_path)
+        .status()
+        .unwrap()
+        .success());
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_forest"));
+    cmd.current_dir(&repo_dir);
+    cmd.env(
+        "PATH",
+        format!(
+            "{}:{}",
+            podman_dir.path().display(),
+            std::env::var("PATH").unwrap()
+        ),
+    );
+    cmd.env("HOME", &home_dir);
+    cmd.env("WORKTREE_PATH", &worktree_path);
+    cmd.env("PODMAN_STATE", podman_dir.path());
+    cmd.arg("open").arg("feat/cool");
+    cmd.stdin(Stdio::piped());
+    cmd.stdout(Stdio::piped());
+
+    let mut child = cmd.spawn().unwrap();
+    {
+        let stdin = child.stdin.as_mut().unwrap();
+        stdin.write_all(b"git branch --show-current\n").unwrap();
+    }
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let out = String::from_utf8_lossy(&output.stdout);
+    assert!(out.contains("feat/cool"));
+
+    assert!(podman_dir.path().join("feat-cool.volumes").exists());
+}
