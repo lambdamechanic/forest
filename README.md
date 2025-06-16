@@ -44,6 +44,17 @@ using the latest Ubuntu image.
 
 Forest reads configuration from `~/.config/forest.toml`.
 
+## Passing credentials to the devcontainer
+
+The devcontainer uses Goose with the `openrouter` provider. To authenticate with
+OpenRouter you need to pass an API key. Set `OPENROUTER_API_KEY` in your local
+environment before launching a session and the value will be forwarded into the
+container via `remoteEnv` in `.devcontainer/devcontainer.json`.
+
+```bash
+export OPENROUTER_API_KEY=your-key-here
+forest open my-session
+
 ## Sample Session
 
 ```bash
