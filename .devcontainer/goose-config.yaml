@@ -1,0 +1,13 @@
+GOOSE_PROVIDER: "openrouter"
+GOOSE_MODEL: "o4-mini"
+GOOSE_TEMPERATURE: 0.2
+GOOSE_MODE: "auto"
+GOOSE_CLI_MIN_PRIORITY: 0.3
+
+extensions:
+  developer:
+    bundled: true
+    enabled: true
+    name: developer
+    timeout: 300
+    type: builtin

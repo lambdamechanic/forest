@@ -10,3 +10,6 @@ ENV GOOSE_PROVIDER=openrouter \
     GOOSE_MODEL=o4-mini
 RUN curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh \
     | CONFIGURE=false bash
+
+# Copy static Goose configuration
+COPY goose-config.yaml /home/vscode/.config/goose/config.yaml
