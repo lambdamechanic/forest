@@ -3,5 +3,6 @@
     "build": { "dockerfile": "Dockerfile" },
     "remoteEnv": {
         "OPENROUTER_API_KEY": "${localEnv:OPENROUTER_API_KEY}"
-    }
+    },
+    "workspaceFolder": "/code"
 }
