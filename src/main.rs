@@ -230,10 +230,47 @@ fn open_session(
 
     let contents = fs::read_to_string(&devcontainer_path)?;
     let value: Value = serde_json::from_str(&contents)?;
-    let image = value
-        .get("image")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("image field missing in devcontainer"))?;
+    let image = if let Some(img) = value.get("image").and_then(|v| v.as_str()) {
+        img.to_string()
+    } else if let Some(build) = value.get("build") {
+        let dockerfile = build
+            .get("dockerfile")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("image field missing in devcontainer"))?;
+        let context = build.get("context").and_then(|v| v.as_str()).unwrap_or(".");
+        let dockerfile_path = devcontainer_path.parent().unwrap().join(dockerfile);
+        let context_path = devcontainer_path.parent().unwrap().join(context);
+        let tag = format!("{}-image", name);
+        if verbose {
+            println!(
+                "Running: podman build -t {} -f {} {}",
+                tag,
+                dockerfile_path.display(),
+                context_path.display()
+            );
+        }
+        let status = Command::new("podman")
+            .arg("build")
+            .arg("-t")
+            .arg(&tag)
+            .arg("-f")
+            .arg(&dockerfile_path)
+            .arg(&context_path)
+            .status()
+            .map_err(|e| {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    anyhow::anyhow!("podman command not found. Please install podman")
+                } else {
+                    e.into()
+                }
+            })?;
+        if !status.success() {
+            anyhow::bail!("podman build failed");
+        }
+        tag
+    } else {
+        anyhow::bail!("image field missing in devcontainer");
+    };
 
     // Check if container exists
     if verbose {

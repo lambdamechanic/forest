@@ -19,8 +19,8 @@ The repository must include a `devcontainer.json` file. The tool looks for:
 * `.devcontainer/devcontainer.json`
 * `.devcontainer/<env>/devcontainer.json` when using `--devcontainer-env <env>`
 
-The selected `devcontainer.json` must specify an `image` field which is used
-to launch the container.
+The selected `devcontainer.json` must specify either an `image` field or a
+`build.dockerfile` which will be built and used to launch the container.
 
 If no configuration is found, `forest` will scaffold `.devcontainer/devcontainer.json`
 using the latest Ubuntu image.
